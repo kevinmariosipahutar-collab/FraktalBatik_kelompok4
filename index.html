@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pembuat Fraktal Batik</title>
+
+<!-- ============================================================
+     BAGIAN 1: TAMPILAN (CSS)
+     Hanya mengatur warna dan tata letak halaman.
+     ============================================================ -->
+
+<style>
+:root{--bg:#f4f4f2;--panel:#fff;--ink:#1b1b1b;--mute:#666;--line:#d9d9d4;--acc:#1e4fd8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+h1{font-size:1.5rem;margin:0 auto;padding:20px 20px 0;max-width:1100px}
+main{max-width:1100px;margin:0 auto;padding:16px 20px 40px;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:820px){main{grid-template-columns:1fr}}
+.stage,fieldset{background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.stage{padding:10px}
+canvas{display:block;width:100%;height:auto;aspect-ratio:1;border-radius:3px}
+fieldset{padding:12px 16px 16px;margin:0 0 16px}
+legend{padding:0 6px;color:var(--mute);font-size:.9rem}
+.tabs{display:flex;gap:6px}
+button{font:inherit;border:1px solid var(--line);background:transparent;color:var(--ink);padding:8px 16px;border-radius:4px;cursor:pointer}
+button[aria-pressed="true"]{background:var(--acc);color:#fff;border-color:var(--acc)}
+label{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:12px 0 4px}
+input[type=range]{width:100%;accent-color:var(--acc)}
+input[type=color]{width:56px;height:34px;padding:2px;border:1px solid var(--line);border-radius:4px;cursor:pointer}
+.row{display:flex;justify-content:space-between;align-items:center;margin:8px 0}
+</style>
+
+</head>
+
+<body>
+<h1>Pembuat Fraktal Batik</h1>
+
+<!-- ============================================================
+     BAGIAN 2: KERANGKA HALAMAN (HTML)
+     Kiri : kanvas tempat gambar. Kanan: tombol dan pengaturan.
+     ============================================================ -->
+
+<main>
+  <div class="stage">
+    <canvas id="kanvas" width="900" height="900"></canvas>
+  </div>
+
+  <div>
+    <fieldset>
+      <legend>Motif</legend>
+      <div class="tabs" id="pilihMotif">
+        <button data-motif="koch" aria-pressed="true">Koch</button>
+        <button data-motif="kawung" aria-pressed="false">Kawung</button>
+      </div>
+
+```
+  <label for="slideN">Tingkat rekursi (n) <b id="nilaiN">3</b></label>
+  <input type="range" id="slideN" min="0" max="6" value="3">
+
+  <label for="slideK">Pengulangan pola (translasi) <b id="nilaiK">2</b></label>
+  <input type="range" id="slideK" min="1" max="4" value="2">
+</fieldset>
+
+<fieldset>
+  <legend>Warna</legend>
+  <div class="row"><span>Latar</span>   <input type="color" id="warnaLatar"  value="#ffffff"></div>
+  <div class="row"><span>Warna 1</span> <input type="color" id="warna1"     value="#1e4fd8"></div>
+  <div class="row"><span>Warna 2</span> <input type="color" id="warna2"     value="#e02424"></div>
+  <div class="row"><span>Warna 3</span> <input type="color" id="warna3"     value="#f5c518"></div>
+  <div class="row"><span>Garis</span>   <input type="color" id="warnaGaris" value="#222222"></div>
+</fieldset>
+```
+
+  </div>
+</main>
+
+<script>
+/* ==============================================================
+   BAGIAN 3: PROGRAM (JavaScript)
+   Urutan isi:
+     A. Data pengaturan
+     B. Motif KOCH    -> RELASI REKURENSI ada di fungsi kochSisi()
+     C. Motif KAWUNG  -> RELASI REKURENSI ada di fungsi gambarKawung()
+     D. Pengulangan pola (translasi)
+     E. Tombol dan slider
+   ============================================================== */
+
+
+/* ---------- A. DATA PENGATURAN ---------- */
+
+const kanvas = document.getElementById("kanvas");
+const pena   = kanvas.getContext("2d");      // "pena" untuk menggambar
+
+const pengaturan = {
+  motif: "koch",   // "koch" atau "kawung"
+  n: 3,            // tingkat rekursi
+  k: 2             // banyak pengulangan pola per sisi (translasi)
+};
+
+// Mengambil warna yang sedang dipilih di halaman
+function ambilWarna() {
+  const nilai = (id) => document.getElementById(id).value;
+  return {
+    latar: nilai("warnaLatar"),
+    w1:    nilai("warna1"),
+    w2:    nilai("warna2"),
+    w3:    nilai("warna3"),
+    garis: nilai("warnaGaris")
+  };
+}
+
+
+/* ---------- B. MOTIF KOCH ----------
+
+   RELASI REKURENSI KOCH (jumlah sisi):
+
+        s(n) = 4 * s(n-1)        untuk n >= 1     (aturan rekurensi)
+        s(0) = 3                                  (basis: segitiga)
+
+   Artinya: setiap 1 sisi diganti menjadi 4 sisi yang lebih pendek.
+   Rumus tertutup: s(n) = 3 * 4^n
+
+   Fungsi kochSisi() di bawah adalah rekurensi itu sendiri:
+   satu sisi dipecah menjadi 4 sisi, lalu 4 sisi itu dipecah lagi
+   dengan n yang dikurangi 1, sampai n = 0.
+*/
+
+// Memecah garis dari titik A ke titik B secara rekursif.
+// Hasilnya (titik-titik garis) dimasukkan ke daftar "titik".
+function kochSisi(A, B, n, titik) {
+
+  // BASIS (n = 0): berhenti memecah, cukup simpan titik awal sisi.
+  if (n === 0) {
+    titik.push(A);
+    return;
+  }
+
+  // LANGKAH REKURENSI (n >= 1): bagi sisi menjadi 3 bagian sama panjang.
+  const dx = B[0] - A[0];
+  const dy = B[1] - A[1];
+  const P1 = [A[0] + dx / 3,     A[1] + dy / 3];       // 1/3 pertama
+  const P2 = [A[0] + 2 * dx / 3, A[1] + 2 * dy / 3];   // 2/3 pertama
+
+  // Puncak segitiga sama sisi di bagian tengah (diputar 60 derajat)
+  const puncak = [
+    P1[0] + dx / 6 + dy * Math.sqrt(3) / 6,
+    P1[1] + dy / 6 - dx * Math.sqrt(3) / 6
+  ];
+
+  // 1 sisi menjadi 4 sisi, masing-masing diproses lagi dengan n-1
+  kochSisi(A,      P1,     n - 1, titik);
+  kochSisi(P1,     puncak, n - 1, titik);
+  kochSisi(puncak, P2,     n - 1, titik);
+  kochSisi(P2,     B,      n - 1, titik);
+}
+
+// Menggambar satu motif Koch di kotak (x, y) berukuran "ukuran"
+function gambarKoch(x, y, ukuran, n, w) {
+  const R  = ukuran * 0.5;
+  const px = x + ukuran / 2;           // pusat motif
+  const py = y + ukuran * 0.54;
+
+  // Basis awal s(0) = 3: tiga sudut segitiga
+  const sudut = [];
+  for (let i = 0; i < 3; i++) {
+    const sudutRad = -Math.PI / 2 + i * 2 * Math.PI / 3;
+    sudut.push([px + R * 0.95 * Math.cos(sudutRad),
+                py + R * 0.95 * Math.sin(sudutRad)]);
+  }
+
+  // Terapkan rekurensi pada ketiga sisi segitiga
+  const titik = [];
+  for (let i = 0; i < 3; i++) {
+    kochSisi(sudut[i], sudut[(i + 1) % 3], n, titik);
+  }
+
+  // Gambar bentuknya
+  pena.beginPath();
+  titik.forEach((t, i) => i === 0 ? pena.moveTo(t[0], t[1]) : pena.lineTo(t[0], t[1]));
+  pena.closePath();
+  pena.fillStyle = w.w1;
+  pena.fill();
+  pena.lineWidth = Math.max(1, ukuran / 300);
+  pena.strokeStyle = w.garis;
+  pena.stroke();
+
+  // Hiasan titik di tengah
+  pena.beginPath(); pena.arc(px, py, R * 0.14, 0, 7); pena.fillStyle = w.w2; pena.fill();
+  pena.beginPath(); pena.arc(px, py, R * 0.07, 0, 7); pena.fillStyle = w.w3; pena.fill();
+}
+
+
+/* ---------- C. MOTIF KAWUNG ----------
+
+   RELASI REKURENSI KAWUNG (jumlah elips):
+
+        E(n) = 4 * E(n-1) + 4    untuk n >= 1     (aturan rekurensi)
+        E(0) = 4                                  (basis: 4 elips)
+
+   Artinya: satu motif menggambar 4 elips miliknya sendiri (+4),
+   lalu dari ujung tiap elips tumbuh 1 motif mini (4 * E(n-1)).
+   Rumus tertutup: E(n) = 4 * (4^(n+1) - 1) / 3
+
+   Fungsi gambarKawung() memanggil dirinya sendiri 4 kali dengan n-1.
+*/
+
+// Empat arah elips: kanan, kiri, bawah, atas (dx, dy, sudut putar)
+const ARAH = [
+  [ 1,  0, 0],
+  [-1,  0, 0],
+  [ 0,  1, Math.PI / 2],
+  [ 0, -1, Math.PI / 2]
+];
+
+function gambarKawung(x, y, r, n, w, kedalaman) {
+  const daftarWarna = [w.w1, w.w2, w.w3];
+
+  // (+4) Gambar 4 elips milik motif ini
+  ARAH.forEach(([dx, dy, putar]) => {
+    pena.beginPath();
+    pena.ellipse(x + dx * r * 0.5, y + dy * r * 0.5, r * 0.5, r * 0.25, putar, 0, Math.PI * 2);
+    pena.fillStyle = daftarWarna[kedalaman % 3];   // warna bergantian tiap tingkat
+    pena.fill();
+    pena.lineWidth = Math.max(0.6, r / 36);
+    pena.strokeStyle = w.garis;
+    pena.stroke();
+  });
+
+  // Titik kecil di pusat
+  pena.beginPath(); pena.arc(x, y, r * 0.09, 0, 7); pena.fillStyle = w.garis; pena.fill();
+
+  // BASIS (n = 0): selesai, tidak memanggil diri sendiri lagi.
+  if (n === 0) return;
+
+  // LANGKAH REKURENSI (n >= 1): tumbuhkan 1 motif mini di ujung tiap elips
+  // (dilatasi / pengecilan dengan skala 0,45)
+  ARAH.forEach(([dx, dy]) => {
+    gambarKawung(x + dx * r * 0.5, y + dy * r * 0.5, r * 0.45, n - 1, w, kedalaman + 1);
+  });
+}
+
+
+/* ---------- D. PENGULANGAN POLA (TRANSLASI) ----------
+   Motif yang sama digeser (translasi) ke kanan dan ke bawah
+   sehingga memenuhi kanvas seperti kain batik. Kolom ganjil
+   digeser setengah tinggi supaya susunannya selang-seling.
+*/
+
+function gambarMotif(x, y, ukuran, w) {
+  if (pengaturan.motif === "koch") {
+    gambarKoch(x, y, ukuran, pengaturan.n, w);
+  } else {
+    // Kawung dibatasi n <= 4 agar komputer tidak berat
+    gambarKawung(x + ukuran / 2, y + ukuran / 2, ukuran * 0.46,
+                 Math.min(pengaturan.n, 4), w, 0);
+  }
+}
+
+function gambarSemua() {
+  const w = ambilWarna();
+  const lebar = kanvas.width;
+  const k = pengaturan.k;
+  const ukuranKotak = lebar / k;
+
+  // Latar
+  pena.fillStyle = w.latar;
+  pena.fillRect(0, 0, lebar, lebar);
+
+  // Translasi motif: kolom i, baris j
+  for (let i = -1; i <= k; i++) {
+    for (let j = -1; j <= k; j++) {
+      const geserSetengah = (i % 2 !== 0) ? ukuranKotak / 2 : 0;
+      gambarMotif(i * ukuranKotak + ukuranKotak * 0.04,
+                  j * ukuranKotak + geserSetengah + ukuranKotak * 0.04,
+                  ukuranKotak * 0.92, w);
+    }
+  }
+}
+
+
+/* ---------- E. TOMBOL DAN SLIDER ----------
+   Setiap kali pengguna mengubah sesuatu, gambar dibuat ulang.
+*/
+
+// Tombol Koch / Kawung
+document.getElementById("pilihMotif").addEventListener("click", (e) => {
+  const tombol = e.target.closest("button");
+  if (!tombol) return;
+  pengaturan.motif = tombol.dataset.motif;
+  document.querySelectorAll("#pilihMotif button").forEach((b) =>
+    b.setAttribute("aria-pressed", b === tombol));
+  gambarSemua();
+});
+
+// Slider n dan k
+function hubungkanSlider(idSlider, idAngka, kunci) {
+  document.getElementById(idSlider).addEventListener("input", (e) => {
+    pengaturan[kunci] = Number(e.target.value);
+    document.getElementById(idAngka).textContent = e.target.value;
+    gambarSemua();
+  });
+}
+hubungkanSlider("slideN", "nilaiN", "n");
+hubungkanSlider("slideK", "nilaiK", "k");
+
+// Pemilih warna
+["warnaLatar", "warna1", "warna2", "warna3", "warnaGaris"].forEach((id) =>
+  document.getElementById(id).addEventListener("input", gambarSemua));
+
+// Gambar pertama kali saat halaman dibuka
+gambarSemua();
+</script>
+
+</body>
+</html>
